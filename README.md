@@ -22,6 +22,10 @@ TS-300B _ High Quality Arduino Turbidity Sensor
 
 GAOHOU PH0-14 Value Detect Sensor Module + PH Electrode Probe BNC 
 
+LME7805 POSITIVE-VOLTAGE REGULATORS
+
+Energizer AAA Batteries, Max Triple A Alkaline, 4 Count
+
 <img width="8393" alt="Frame 24" src="https://github.com/qianachen8/514--final/assets/153400838/4d0a842d-1af8-46e6-8c71-1ad30298660b">
 
 ![image](https://github.com/qianachen8/514--final/assets/153400838/c7cdc15d-c16f-47b7-be1b-850e048bf541)![wkfl 1](https://github.com/qianachen8/514--final/assets/153400838/26c332db-9ffd-4bc7-8adb-5d5aaedc2104)
