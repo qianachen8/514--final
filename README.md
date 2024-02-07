@@ -9,11 +9,17 @@ Handheld pH Measure kit is designed to assess and monitor the quality of water a
 
 ## Item needed
 SSD1306 _128x640LED
+
 LED_0805_2012Metric_Pad1.15x1.40mm_ HandSolder
+
 Stepper motor_X27_two_holes
+
 Esp32_sense: XIAO_ESP32_SENSE
+
 Resistor_0805_2012Metric_Pad1.20x1.40mm_HandSoldern 165 ohms
+
 TS-300B _ High Quality Arduino Turbidity Sensor
+
 GAOHOU PH0-14 Value Detect Sensor Module + PH Electrode Probe BNC 
 
 <img width="8393" alt="Frame 24" src="https://github.com/qianachen8/514--final/assets/153400838/4d0a842d-1af8-46e6-8c71-1ad30298660b">
