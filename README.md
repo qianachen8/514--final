@@ -26,10 +26,12 @@ LME7805 POSITIVE-VOLTAGE REGULATORS
 
 Energizer AAA Batteries, Max Triple A Alkaline, 4 Count
 
+## Proposal Slide
 <img width="8393" alt="Frame 24" src="https://github.com/qianachen8/514--final/assets/153400838/4d0a842d-1af8-46e6-8c71-1ad30298660b">
 
-![image](https://github.com/qianachen8/514--final/assets/153400838/c7cdc15d-c16f-47b7-be1b-850e048bf541)![wkfl 1](https://github.com/qianachen8/514--final/assets/153400838/26c332db-9ffd-4bc7-8adb-5d5aaedc2104)
+final/assets/153400838/26c332db-9ffd-4bc7-8adb-5d5aaedc2104)
 
+![image](https://github.com/qianachen8/514--final/assets/153400838/c7cdc15d-c16f-47b7-be1b-850e048bf541)![wkfl 1](https://github.com/qianachen8/514--
 ![image](https://github.com/qianachen8/514--final/assets/153400838/842e39c0-8217-47cf-a41c-fe935436c47b)
 ![image](https://github.com/qianachen8/514--final/assets/153400838/ced0c419-38f7-48a4-a523-f04a4040ba73)
 ![image](https://github.com/qianachen8/514--final/assets/153400838/4cbdaf34-6bbd-4359-94b8-fd1d8c89ad04)
