@@ -1,46 +1,38 @@
 #include <Arduino.h>
 #include <BLEDevice.h>
-#include <BLEServer.h>
 #include <BLEUtils.h>
-#include <BLE2902.h>
+#include <BLEScan.h>
+#include <BLEAdvertisedDevice.h>
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
-#include <SwitecX25.h>
+#include <AccelStepper.h>
+#include <queue>
 
-// standard X25.168 ranges from 0 to 315 degrees, at 1/3 degree increments
-#define STEPS 945
-static int nextPos = 0;
-bool setFlag = false;
+#define SCREEN_WIDTH 128 // OLED display width, in pixels
+#define SCREEN_HEIGHT 32 // OLED display height, in pixels
 
-// refreshClk variable to set display refresh rate
-int refreshClk = 0;
-
-// There is a active-low button switch connected to the pin D8
-#define BUTTON_PIN D9
-
-// There is a 128x32 OLED display connected via I2C (SDA, SCL pins)
-#define SCREEN_WIDTH 128
-#define SCREEN_HEIGHT 32
-#define OLED_RESET    -1
+#define OLED_RESET    -1 // Reset pin # (or -1 if sharing Arduino reset pin)
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
-// For motors connected to D0, D1, D2, D3
-SwitecX25 motor1(STEPS, D0, D1, D2, D3);
+// Define the stepper motor connections
+#define motorPin1  GPIO_NUM_1 // Replace with the ESP32 pin connected to motor
+#define motorPin2  GPIO_NUM_2 // Replace with the ESP32 pin connected to motor
+#define motorPin3  GPIO_NUM_3 // Replace with the ESP32 pin connected to motor
+#define motorPin4  GPIO_NUM_4 // Replace with the ESP32 pin connected to motor
 
-// Constants for sensor pins
-const int pH_Pin = 2; // Adjust if using a different pin
-const int turbidity_Pin = 3; // Adjust if using a different pin
+// Initialize the stepper library on pins motorPin1 through motorPin4
+AccelStepper stepper(AccelStepper::FULL4WIRE, motorPin1, motorPin3, motorPin2, motorPin4);
 
-// BLE Server
-BLEServer* pServer = NULp[L;
-BLECharacteristic* pCharacteristic = NULL;
-bool deviceConnected = false;
+const int position9oclock = 0; // 9
+const int position6oclock = -300; // 6
 
-// UUIDs
-static BLEUUID serviceUUID("e7fb9c3e-afe8-4172-9b49-0da0b2eb3167");
-// The characteristic of the remote service we are interested in.
-static BLEUUID    charUUID("f2fb033c-6ac8-4b5e-9dcf-dfa367e1ee89");
+static BLEUUID serviceUUID("9421d390-7612-4ea9-ab96-c28e14e38fdf");
+static BLEUUID charUUID("1b3a6e07-fcdc-416a-961b-7c2ed7482778");
+
+std::queue<float> pHBuffer; // Queue to store recent pH readings
+const int movingAverageWindow = 10; // Window size for moving average
+float movingAverageSum = 0.0; // Sum for calculating the moving average
 
 static boolean doConnect = false;
 static boolean connected = false;
@@ -48,124 +40,68 @@ static boolean doScan = false;
 static BLERemoteCharacteristic* pRemoteCharacteristic;
 static BLEAdvertisedDevice* myDevice;
 
-
+// Notify callback function to handle data received from the server
 static void notifyCallback(
   BLERemoteCharacteristic* pBLERemoteCharacteristic,
   uint8_t* pData,
   size_t length,
   bool isNotify) {
-    // TODO: add codes to handle the data received from the server, and call the data aggregation function to process the data
-
-    // TODO: change the following code to customize your own data format for printing
-    Serial.print("Notify callback for characteristic ");
-    Serial.print(pBLERemoteCharacteristic->getUUID().toString().c_str());
-    Serial.print(" of data length ");
-    Serial.println(length);
-    Serial.print("data: ");
-    Serial.write(pData, length);
-    Serial.println();
-}
-
-// Function definitions
-float readPHSensor() {
-    // Assuming the pH sensor is connected to analog pin A0
-    int sensorValue = analogRead(2);
-    float voltage = sensorValue * (5.0 / 1023.0); // Convert the analog reading to voltage
-    float pH = (voltage - 2.5) * -1; // Convert voltage to pH value (example conversion, adjust as needed)
-    return pH;
-}
-
-float readTurbiditySensor() {
-    // Assuming the turbidity sensor is connected to analog pin A1
-    int sensorValue = analogRead(3);
-    float voltage = sensorValue * (5.0 / 1023.0); // Convert the analog reading to voltage
-    float turbidity = voltage * 10; // Convert voltage to turbidity value (example conversion, adjust as needed)
-    return turbidity;
-}
-
-// Move stepper motor based on pH value
-void moveStepperMotor(float pH) {
-    int targetPosition = map(pH, 1, 14, 0, STEPS); // Map pH value to stepper position
-    motor1.setPosition(targetPosition); // Use setPosition instead of moveTo
-    while (motor1.currentStep != targetPosition) { // Check against currentStep instead of distanceToGo
-        motor1.update();
-        delay(1); // Short delay to allow motor to step
+    String message = "";
+    for (int i = 0; i < length; i++) {
+        message += (char)pData[i];
     }
-}
 
-// Reset stepper motor when pushbutton is pressed
-void resetStepperMotor() {
-    if (digitalRead(BUTTON_PIN) == LOW) {
-        motor1.setPosition(0); // Use setPosition to set the motor position to 0
-        while (motor1.currentStep != 0) { // Check against currentStep
-            motor1.update();
-            delay(1); // Short delay to allow motor to step
-        }
-    }
-}
+    Serial.println(message);
 
-class MyServerCallbacks : public BLEServerCallbacks {
-    void onConnect(BLEServer* pServer) {
-        deviceConnected = true;
-    };
-
-    void onDisconnect(BLEServer* pServer) {
-        deviceConnected = false;
-    }
-};
-
-/**
- * Scan for BLE servers and find the first one that advertises the service we are looking for.
- */
-class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
-  /**
-   * Called for each advertising BLE server.
-   */
-  void onResult(BLEAdvertisedDevice advertisedDevice) {
-    Serial.print("BLE Advertised Device found: ");
-    Serial.println(advertisedDevice.toString().c_str());
-
-    // We have found a device, let us now see if it contains the service we are looking for.
-    if (advertisedDevice.haveServiceUUID() && advertisedDevice.isAdvertisingService(serviceUUID)) {
-
-      BLEDevice::getScan()->stop();
-      myDevice = new BLEAdvertisedDevice(advertisedDevice);
-      doConnect = true;
-      doScan = true;
-
-    } // Found our server
-  } // onResult
-}; // MyAdvertisedDeviceCallbacks
-
-void setup() {
-  Serial.begin(115200);
-  Serial.println("Starting Arduino BLE Client application...");
-  BLEDevice::init("");
-  // Initialize OLED display
-  if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
-    Serial.println(F("SSD1306 allocation failed"));
-    for (;;);
-  }
-  // Display sensor values on OLED display
+ // Display the message on OLED
     display.clearDisplay();
-    display.setCursor(0,0);
-    display.print("Turbidity: ");
-    display.println(readTurbiditySensor());
-    display.print("pH: ");
-    display.println(readPHSensor());
-    display.display();
-    Serial.println("OLED display initialized");
+    display.setTextSize(2);
+    display.setTextColor(SSD1306_WHITE);
 
-  // Retrieve a Scanner and set the callback we want to use to be informed when we
-  // have detected a new device.  Specify that we want active scanning and start the
-  // scan to run for 5 seconds.
-  BLEScan* pBLEScan = BLEDevice::getScan();
-  pBLEScan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks());
-  pBLEScan->setInterval(1349);
-  pBLEScan->setWindow(449);
-  pBLEScan->setActiveScan(true);
-  pBLEScan->start(5, false);
-} // End of setup.
+    // Split the message by newline to separate turbidity from pH value
+int newlineIndex = message.indexOf('\n');
+if (newlineIndex != -1) {
+    String turbidity = message.substring(0, newlineIndex);
+    String phString = message.substring(newlineIndex + 1);
+    display.setCursor(0,0);
+    display.println(turbidity);
+
+    // Stepper Motor Control based on pH value
+    if (phString.indexOf("Acid") != -1 && stepper.currentPosition() != position6oclock) {
+        stepper.moveTo(position6oclock);
+    } else if (phString.indexOf("Natural") != -1 && stepper.currentPosition() != position9oclock) {
+        stepper.moveTo(position9oclock);
+    } else if (phString.indexOf("Basic") != -1 && stepper.currentPosition() != position12oclock) {
+    stepper.moveTo(position12oclock);
+
+
+    // Extracting and converting pH value and turbidity value
+    float phValue = phString.substring(phString.indexOf(" ")).toFloat(); // Assuming format "pH X.XX"
+    float turbidityValue = turbidity.substring(turbidity.indexOf(" ")).toFloat(); // Assuming format "Turbidity X.XX NTU"
+    // Update the moving average buffer
+    if (pHBuffer.size() >= movingAverageWindow) {
+    movingAverageSum -= pHBuffer.front();
+    pHBuffer.pop();   
+    }
+    pHBuffer.push(phValue);
+    movingAverageSum += phValue;
+    float movingAveragepH = movingAverageSum / pHBuffer.size();
+
+    // Displaying pH value and turbidity value
+    display.print("pH: ");
+    display.println(phValue);
+
+    display.print("Turbidity: ");
+    display.print(turbidityValue);
+    display.println(" NTU");
+} else {
+    // Fallback if the format is not as expected
+    display.setCursor(0,0);
+    display.println(message);
+}
+
+display.display();
+}
 
 
 class MyClientCallback : public BLEClientCallbacks {
@@ -174,30 +110,23 @@ class MyClientCallback : public BLEClientCallbacks {
 
   void onDisconnect(BLEClient* pclient) {
     connected = false;
-    Serial.println("onDisconnect");
+    Serial.println("Disconnect");
   }
 };
 
 bool connectToServer() {
-    Serial.print("Forming a connection to ");
-    Serial.println(myDevice->getAddress().toString().c_str());
-
+    Serial.println("Forming a connection to ");
     BLEClient*  pClient  = BLEDevice::createClient();
     Serial.println(" - Created client");
-
     pClient->setClientCallbacks(new MyClientCallback());
-
-    // Connect to the remove BLE Server.
-    pClient->connect(myDevice);  // if you pass BLEAdvertisedDevice instead of address, it will be recognized type of peer device address (public or private)
+    pClient->connect(myDevice); // if you pass BLEAdvertisedDevice instead of address, it will be recognized type of peer device address (public or private)
     Serial.println(" - Connected to server");
-    pClient->setMTU(517); //set client to request maximum MTU from server (default is 23 otherwise)
 
     // Obtain a reference to the service we are after in the remote BLE server.
     BLERemoteService* pRemoteService = pClient->getService(serviceUUID);
     if (pRemoteService == nullptr) {
       Serial.print("Failed to find our service UUID: ");
       Serial.println(serviceUUID.toString().c_str());
-      pClient->disconnect();
       return false;
     }
     Serial.println(" - Found our service");
@@ -207,7 +136,6 @@ bool connectToServer() {
     if (pRemoteCharacteristic == nullptr) {
       Serial.print("Failed to find our characteristic UUID: ");
       Serial.println(charUUID.toString().c_str());
-      pClient->disconnect();
       return false;
     }
     Serial.println(" - Found our characteristic");
@@ -226,51 +154,65 @@ bool connectToServer() {
     return true;
 }
 
+class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
+    void onResult(BLEAdvertisedDevice advertisedDevice) {
+        Serial.print("BLE Advertised Device found: ");
+        Serial.println(advertisedDevice.toString().c_str());
 
-
-// This is the Arduino main loop function.
-void loop() {
-  // Check if we need to connect to the BLE Server
-  if (doConnect == true) {
-    if (connectToServer()) {
-      Serial.println("We are now connected to the BLE Server.");
-      connected = true; // Set the connected flag to true
-    } else {
-      Serial.println("We have failed to connect to the server; there is nothing more we will do.");
-      connected = false; // Set the connected flag to false
+        // We have found a device, let us now see if it contains the service we are looking for.
+        if (advertisedDevice.haveServiceUUID() && advertisedDevice.isAdvertisingService(serviceUUID)) {
+            BLEDevice::getScan()->stop();
+            myDevice = new BLEAdvertisedDevice(advertisedDevice);
+            doConnect = true;
+            doScan = false;
+        }
     }
-    doConnect = false;
-  }
-    if (deviceConnected) {
-        
-        // Read sensor values
-        float pH = readPHSensor();
-        float turbidity = readTurbiditySensor();
-        int pHsensorValue = 0;
-        int turbiditySensorValue = 0;
+};
 
-        // Display sensor values on Serial Monitor
-        Serial.print("Turbidity: ");
-        Serial.println(turbidity);
-        Serial.print("pH: ");
-        Serial.println(pH);
-        Serial.print("Turbidity Sensor Value: ");
-        Serial.println(turbiditySensorValue);
-        Serial.print("pH Sensor Value: ");
-        Serial.println(pHsensorValue);
+void setup() {
+    Serial.begin(115200);
+    Serial.println("Starting Arduino BLE Client application...");
+    BLEDevice::init("");
 
-
-        // Construct the string to send over BLE
-        String sensorData = "pH:" + String(pH) + ", Turbidity:" + String(turbidity);
-
-        // Send sensor values over BLE by writing to the characteristic
-        pRemoteCharacteristic->writeValue(sensorData.c_str(), sensorData.length());
-        Serial.println("Sent data to BLE Server: " + sensorData);
-    } else if (doScan) {
-        // Restart scanning if we are not connected
-        BLEDevice::getScan()->start(0); // 0 means continuous scanning
+    // SSD1306_SWITCHCAPVCC = generate display voltage from 3.3V internally
+    if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) { // Check your OLED I2C address
+        Serial.println(F("SSD1306 allocation failed"));
+        for(;;); // Don't proceed, loop forever
     }
+    display.display();
+    delay(2000); // Pause for 2 seconds
 
-    delay(1000); // Delay a second between loops.
+    // Display initial text
+    display.clearDisplay();
+    display.setTextSize(1);      // Normal 1:1 pixel scale
+    display.setTextColor(SSD1306_WHITE); // Draw white text
+    display.setCursor(0,0);     // Start at top-left corner
+    display.print(F("Scanning..."));
+    display.display();
+
+    stepper.setMaxSpeed(1000);
+    stepper.setAcceleration(500);
+    stepper.setCurrentPosition(0); // suppose current location is 9 clock
+    stepper.moveTo(position9oclock); // if not 9 clock, move to 9clock
+
+    // Start scanning for BLE servers and specify the callback function that will handle the results
+    BLEScan* pBLEScan = BLEDevice::getScan();
+    pBLEScan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks());
+    pBLEScan->setInterval(1349);
+    pBLEScan->setWindow(449);
+    pBLEScan->setActiveScan(true);
+    pBLEScan->start(5, false);
 }
 
+void loop() {
+    if (doConnect == true) {
+        if (connectToServer()) {
+            Serial.println("We are now connected to the BLE Server.");
+        } else {
+            Serial.println("We have failed to connect to the server. Restarting scan...");
+            BLEDevice::getScan()->start(0); // 0 = do not stop scanning after a period
+        }
+        doConnect = false;
+    }
+    stepper.run();
+}
